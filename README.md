@@ -5,8 +5,10 @@
 
 ## What is it?
 
-KalendarKit is a Compose Multiplatform library designed to simplify the presentation of events for users to add. Using native APIs, KalendarKit allows developers to present a modal EventKit interface on iOS and open 
-the default calendar application on Android, making it easier to allow user to add events.
+KalendarKit is a Compose Multiplatform library for working with system calendars on Android and iOS.
+It supports both:
+- opening native system UI to let users add/review events
+- programmatic calendar operations (insert, query, update, delete, open event)
 
 ## Example
 
@@ -21,11 +23,9 @@ the default calendar application on Android, making it easier to allow user to a
   </tr>
 </table>
 
-## How to use it?
+## Installation
 
-### Add KalendarKit to your project
-
-To use KalendarKit in your project, you need to add the following dependencies to your `build.gradle.kts` file:
+Add dependency in `commonMain`:
 
 ```kotlin
 commonMain.dependencies {
@@ -33,7 +33,7 @@ commonMain.dependencies {
 }
 ```
 
-or using version catalog:
+Or with version catalog:
 
 ```toml
 [versions]
@@ -43,140 +43,160 @@ kalendar-kit = "1.1.0"
 kalendar-kit = { module = "be.vandeas:kalendar-kit", version.ref = "kalendar-kit" }
 ```
 
-### iOS
-
-#### Permission
-
-To use KalendarKit in your iOS application, you need to ask permission to access the calendar. You can do this by adding the following `NSCalendarsUsageDescription` entry to your `Info.plist` file.
-
-#### Setup
-
-To use the `CalendarEventManager` class, you need to setup the `UIViewController` that will be used to present the modal interface. You can do this by calling the `setup` method on the `CalendarEventManager` class.
-
-You can see an example in `composeApp` sample of [this repository](./composeApp).
+## Platform setup
 
 ### Android
 
-#### Permission
+#### Manifest permissions
 
-To use KalendarKit in your Android 11+ application, you need to declare the queries for the calendar provider in your `AndroidManifest.xml` file. This is required to allow your app to query the calendar app.
+For programmatic read/write operations, declare:
 
 ```xml
-    <queries>
-        <intent>
-            <action android:name="android.intent.action.INSERT" />
-            <data android:mimeType="vnd.android.cursor.dir/event" />
-        </intent>
-    </queries>
+<uses-permission android:name="android.permission.READ_CALENDAR" />
+<uses-permission android:name="android.permission.WRITE_CALENDAR" />
 ```
 
-#### Setup
+If you use system insert UI (`openAddEvent`), keep calendar app query declaration:
 
-To use the `CalendarEventManager` class, you need to setup the `Context` that will be used to present the modal interface. You can do this by calling the `setup` method on the `CalendarEventManager` class.
+```xml
+<queries>
+    <intent>
+        <action android:name="android.intent.action.INSERT" />
+        <data android:mimeType="vnd.android.cursor.dir/event" />
+    </intent>
+</queries>
+```
 
-You can see an example in `composeApp` sample of [this repository](./composeApp).
-
-## Getting Started
-
-This guide will help you integrate KalendarKit into your Compose Multiplatform project.
-
-### 1. Initialization
-
-First, you need to initialize `CalendarEventManager` for each platform.
-
-#### Android (Kotlin)
-
-In your `Activity` (e.g., `MainActivity.kt`), initialize `CalendarEventManager` by calling its `setup` method with the application `Context`.
+#### Initialization
 
 ```kotlin
-class MainActivity : ComponentActivity() {
-    private val calendarEventManager = CalendarEventManager()
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        // Initialize CalendarEventManager
-        calendarEventManager.setup(this)
-
-        setContent {
-            // Your Composable App
-            // App(calendarEventManager) // Pass it to your composables if needed
-        }
-    }
-}
+val manager = Platform.calendarEventManager
+manager.setup(context)
 ```
 
-#### iOS (Swift)
+### iOS
 
-In your SwiftUI `App` or `UIViewControllerRepresentable` (e.g., `ContentView.swift` or wherever you set up your main view controller), initialize `CalendarEventManager` by calling its `setPresentingViewController` method.
+#### Info.plist keys
+
+Declare calendar usage descriptions in `Info.plist`:
+
+```xml
+<key>NSCalendarsUsageDescription</key>
+<string>This app needs calendar access to read and manage events.</string>
+<key>NSCalendarsFullAccessUsageDescription</key>
+<string>This app needs calendar access to read and manage events.</string>
+<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
+<string>This app needs calendar access to add events.</string>
+```
+
+#### Initialization
+
+Set the presenting view controller before opening system event UI:
 
 ```swift
-import UIKit
-import SwiftUI
-import ComposeApp // Your Kotlin Multiplatform shared module
-
-struct ComposeView: UIViewControllerRepresentable {
-    // Obtain the top-most UIViewController
-    func topMostViewController() -> UIViewController? {
-        guard let window = UIApplication.shared.connectedScenes
-                  .compactMap({ $0 as? UIWindowScene })
-                  .flatMap({ $0.windows })
-                  .first(where: { $0.isKeyWindow }) else {
-            return nil
-        }
-        var topController = window.rootViewController
-        while let presented = topController?.presentedViewController {
-            topController = presented
-        }
-        return topController
-    }
-
-    func makeUIViewController(context: Context) -> UIViewController {
-        let mainViewController = MainViewControllerKt.MainViewController() // Your Compose UI entry point
-        
-        // Initialize CalendarEventManager
-        if let presentingVC = topMostViewController() {
-            // Assuming CalendarEventManager is accessible, e.g., via a shared instance or passed down
-            // For this example, let's assume you have a way to access it from your shared module
-            // This might involve creating an instance and then setting the presenter.
-            // Refer to your shared module's API for the exact way to obtain/create CalendarEventManager.
-            // For instance, if Platform.calendarEventManager is your shared instance:
-            Platform.shared.calendarEventManager.setPresentingViewController(viewController: presentingVC)
-        }
-        
-        return mainViewController
-    }
-}
+Platform.shared.calendarEventManager.setPresentingViewController(viewController: presentingVC)
 ```
-*Note: The Swift example assumes you have a way to access or create an instance of `CalendarEventManager` from your shared Kotlin module (e.g., through the `Platform` object or similar). You'll need to call `setPresentingViewController` on that instance.*
 
-### 2. Creating an Event
+## Usage
 
-Once initialized, you can use the `CalendarEventManager` instance to create events.
+### 1. Open native add-event UI
 
 ```kotlin
-// Assume 'calendarEventManager' is the initialized instance from Step 1.
-// For Android, this would be the instance from MainActivity.
-// For iOS, this would be the instance you called setPresentingViewController on.
+val event = Event(
+    title = "Team Meeting",
+    startDate = now.toLocalDateTime(TimeZone.currentSystemDefault()),
+    endDate = (now + 1.hours).toLocalDateTime(TimeZone.currentSystemDefault()),
+    notes = "Discuss sprint goals",
+    location = "Room B",
+    url = "https://example.com"
+)
 
-fun createSampleEvent(calendarEventManager: CalendarEventManager) {
-    CoroutineScope(Dispatchers.Main).launch {
-        val event = Event(
-            title = "Team Meeting",
-            startDate = LocalDateTime(2025, 5, 20, 10, 0, 0), // Year, Month, Day, Hour, Minute, Second
-            endDate = LocalDateTime(2025, 5, 20, 11, 0, 0),
-            notes = "Discuss project updates and upcoming sprint.",
-            location = "Conference Room B",
-            url = "https://your-meeting-link.com"
-        )
-        
-        val success = calendarEventManager.createEvent(event)
-        if (success) {
-            println("Event created successfully!")
-        } else {
-            println("Failed to create event.")
-        }
-    }
-}
+val shown = manager.openAddEvent(event)
 ```
 
-For a complete, runnable example, please refer to the `composeApp` sample module within this repository: [./composeApp](./composeApp).
+### 2. Programmatic CRUD
+
+```kotlin
+val id = manager.insertEvent(
+    CalendarEventDraft(
+        title = "Planning",
+        start = now + 1.days,
+        end = now + 1.days + 1.hours,
+        notes = "Quarter planning",
+        alarmMinutesBefore = listOf(15)
+    )
+)
+
+val events = manager.queryEvents(
+    CalendarQuery(
+        from = now - 7.days,
+        to = now + 7.days
+    )
+)
+
+manager.updateEvent(
+    SystemCalendarEvent(
+        id = id,
+        calendarId = null,
+        title = "Planning (Updated)",
+        start = now + 2.days,
+        end = now + 2.days + 1.hours,
+        notes = "Updated agenda",
+        location = "Room C"
+    )
+)
+
+manager.openEvent(id)
+manager.deleteEvent(id)
+```
+
+### 3. Permission APIs
+
+```kotlin
+val status = manager.currentPermission()
+
+val writeStatus = manager.requestWritePermission()
+val readWriteStatus = manager.requestReadWritePermission()
+```
+
+`CalendarPermissionStatus` values:
+- `NotDetermined`
+- `Granted`
+- `Denied`
+- `Restricted`
+- `WriteOnly`
+- `Unknown`
+
+## Exceptions
+
+All domain exceptions inherit from `SystemCalendarException`:
+- `CalendarPermissionException(requiredAccess: CalendarAccess)`:
+  missing runtime permission for the requested operation (`WriteOnly` or `ReadWrite`).
+- `CalendarPermissionNotDeclaredException(platform: CalendarPlatform)`:
+  required permission declaration is missing from platform config (`AndroidManifest.xml` / `Info.plist`).
+- `CalendarUnavailableException`:
+  system calendar provider/app is unavailable on the current device.
+- `CalendarEventNotFoundException(eventId: String)`:
+  target event does not exist (commonly for `updateEvent`, `deleteEvent`, `openEvent`).
+- `CalendarValidationException`:
+  invalid input payload (for example blank title, invalid time range, invalid URL, duplicated alarm minutes).
+- `CalendarOperationFailedException(operation: CalendarOperation)`:
+  platform call failed while executing an operation (`OpenAddEvent`, `Insert`, `Query`, `Update`, `Delete`).
+
+Common API-level exception mapping:
+- `openAddEvent(event)`:
+  may throw `CalendarValidationException`, `CalendarPermissionNotDeclaredException`, `CalendarPermissionException`, `CalendarOperationFailedException`, `CalendarUnavailableException`.
+- `insertEvent(draft)`:
+  may throw `CalendarValidationException`, `CalendarPermissionNotDeclaredException`, `CalendarPermissionException`, `CalendarOperationFailedException`, `CalendarUnavailableException`.
+- `queryEvents(query)`:
+  may throw `CalendarValidationException`, `CalendarPermissionNotDeclaredException`, `CalendarPermissionException`, `CalendarOperationFailedException`, `CalendarUnavailableException`.
+- `updateEvent(event)`:
+  may throw `CalendarValidationException`, `CalendarEventNotFoundException`, `CalendarPermissionNotDeclaredException`, `CalendarPermissionException`, `CalendarOperationFailedException`, `CalendarUnavailableException`.
+- `deleteEvent(eventId)`:
+  may throw `CalendarEventNotFoundException`, `CalendarPermissionNotDeclaredException`, `CalendarPermissionException`, `CalendarOperationFailedException`, `CalendarUnavailableException`.
+- `openEvent(eventId)`:
+  may throw `CalendarEventNotFoundException` (platform-dependent), `CalendarOperationFailedException`, `CalendarUnavailableException`.
+
+## Notes
+
+- `createEvent(event)` is deprecated. Use `openAddEvent(event)`.

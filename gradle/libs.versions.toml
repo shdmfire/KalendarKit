@@ -2,10 +2,11 @@
 agp = "8.13.0"
 kotlin = "2.2.20"
 android-minSdk = "24"
-android-compileSdk = "36"
+android-compileSdk = "37"
 android-targetSdk = "36"
 androidx-activityCompose = "1.11.0"
 androidx-lifecycle = "2.9.4"
+androidx-core = "1.15.0"
 compose-multiplatform = "1.9.0"
 kotlinx-datetime = "0.7.1"
 
@@ -13,6 +14,7 @@ kotlinx-datetime = "0.7.1"
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activityCompose" }
 androidx-lifecycle-viewmodel = { group = "org.jetbrains.androidx.lifecycle", name = "lifecycle-viewmodel", version.ref = "androidx-lifecycle" }
 androidx-lifecycle-runtime-compose = { group = "org.jetbrains.androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "androidx-lifecycle" }
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "androidx-core" }
 kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinx-datetime" }
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
 
