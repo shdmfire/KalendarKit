@@ -20,7 +20,7 @@ kotlin {
             jvmTarget.set(JvmTarget.JVM_11)
         }
     }
-    iosX64()
+//    iosX64()
     iosArm64()
     iosSimulatorArm64()
 
@@ -58,7 +58,7 @@ kotlin {
 
 android {
     namespace = "be.vandeas.kalendar.kit"
-    compileSdk = libs.versions.android.compileSdk.get().toInt()
+    compileSdk = 37
     defaultConfig {
         minSdk = libs.versions.android.minSdk.get().toInt()
     }

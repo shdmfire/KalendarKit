@@ -18,7 +18,7 @@ kotlin {
     }
     
     listOf(
-        iosX64(),
+//        iosX64(),
         iosArm64(),
         iosSimulatorArm64()
     ).forEach { iosTarget ->
@@ -55,7 +55,7 @@ kotlin {
 
 android {
     namespace = "be.vandeas.kalendar.kit.sample"
-    compileSdk = libs.versions.android.compileSdk.get().toInt()
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "be.vandeas.kalendar.kit.sample"
