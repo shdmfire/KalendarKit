@@ -159,6 +159,19 @@ val writeStatus = manager.requestWritePermission()
 val readWriteStatus = manager.requestReadWritePermission()
 ```
 
+On Android, `requestWritePermission()` and `requestReadWritePermission()` do not show the system permission dialog because the library does not own an `Activity`. Request calendar permissions from the host app, then call `currentPermission()`:
+
+```kotlin
+ActivityCompat.requestPermissions(
+    activity,
+    arrayOf(
+        Manifest.permission.READ_CALENDAR,
+        Manifest.permission.WRITE_CALENDAR
+    ),
+    REQUEST_CALENDAR_PERMISSION
+)
+```
+
 `CalendarPermissionStatus` values:
 - `NotDetermined`
 - `Granted`
