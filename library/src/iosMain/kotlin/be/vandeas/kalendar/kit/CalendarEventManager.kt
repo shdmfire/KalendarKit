@@ -138,7 +138,7 @@ actual class CalendarEventManager {
 
     @OptIn(ExperimentalForeignApi::class)
     @Throws(SystemCalendarException::class, CancellationException::class)
-    actual suspend fun updateEvent(event: SystemCalendarEvent) = withContext(Dispatchers.IO) {
+    actual suspend fun updateEvent(event: SystemCalendarEvent): Unit = withContext(Dispatchers.IO) {
         event.validate()
         ensureWritePermission()
 
@@ -153,6 +153,7 @@ actual class CalendarEventManager {
         ekEvent.URL = event.url?.let { NSURL(string = it) }
 
         saveEvent(ekEvent, CalendarOperation.Update)
+        Unit
     }
 
     @OptIn(ExperimentalForeignApi::class)
