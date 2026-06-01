@@ -38,7 +38,6 @@ actual class CalendarEventManager {
     @OptIn(ExperimentalForeignApi::class, ExperimentalTime::class)
     @Throws(SystemCalendarException::class, CancellationException::class)
     actual suspend fun openAddEvent(event: Event): Boolean {
-        event.validate()
         if (!::presentingViewController.isInitialized) {
             throw CalendarOperationFailedException(CalendarOperation.OpenAddEvent, "presentingViewController is not initialized")
         }
@@ -79,7 +78,6 @@ actual class CalendarEventManager {
     @OptIn(ExperimentalForeignApi::class)
     @Throws(SystemCalendarException::class, CancellationException::class)
     actual suspend fun insertEvent(event: CalendarEventDraft): String = withContext(Dispatchers.IO) {
-        event.validate()
         ensurePermission(CalendarAccess.WriteOnly)
 
         runCalendar(CalendarOperation.Insert, CalendarAccess.WriteOnly) {
@@ -104,7 +102,6 @@ actual class CalendarEventManager {
     @OptIn(ExperimentalForeignApi::class)
     @Throws(SystemCalendarException::class, CancellationException::class)
     actual suspend fun queryEvents(query: CalendarQuery): List<SystemCalendarEvent> = withContext(Dispatchers.IO) {
-        query.validate()
         ensurePermission(CalendarAccess.ReadWrite)
 
         runCalendar(CalendarOperation.Query, CalendarAccess.ReadWrite) {
@@ -142,7 +139,6 @@ actual class CalendarEventManager {
     @OptIn(ExperimentalForeignApi::class)
     @Throws(SystemCalendarException::class, CancellationException::class)
     actual suspend fun updateEvent(event: SystemCalendarEvent): Unit = withContext(Dispatchers.IO) {
-        event.validate()
         ensurePermission(CalendarAccess.WriteOnly)
 
         runCalendar(CalendarOperation.Update, CalendarAccess.WriteOnly) {
@@ -213,12 +209,18 @@ actual class CalendarEventManager {
         when (access) {
             CalendarAccess.WriteOnly -> {
                 eventStore.requestWriteOnlyAccessToEventsWithCompletion { granted, _ ->
-                    cont.resume(if (granted) CalendarPermissionStatus.WriteOnly else CalendarPermissionStatus.Denied)
+                    cont.resume(
+                        if (granted) CalendarPermissionStatus.Granted(CalendarAccess.WriteOnly)
+                        else CalendarPermissionStatus.Denied
+                    )
                 }
             }
             CalendarAccess.ReadWrite -> {
                 eventStore.requestFullAccessToEventsWithCompletion { granted, _ ->
-                    cont.resume(if (granted) CalendarPermissionStatus.Granted else CalendarPermissionStatus.Denied)
+                    cont.resume(
+                        if (granted) CalendarPermissionStatus.Granted(CalendarAccess.ReadWrite)
+                        else CalendarPermissionStatus.Denied
+                    )
                 }
             }
         }
@@ -227,9 +229,9 @@ actual class CalendarEventManager {
     actual suspend fun currentPermission(): CalendarPermissionStatus = withContext(Dispatchers.IO) {
         val status = EKEventStore.authorizationStatusForEntityType(EKEntityType.EKEntityTypeEvent)
         return@withContext when (status) {
-            EKAuthorizationStatusAuthorized -> CalendarPermissionStatus.Granted
-            EKAuthorizationStatusFullAccess -> CalendarPermissionStatus.Granted
-            EKAuthorizationStatusWriteOnly -> CalendarPermissionStatus.WriteOnly
+            EKAuthorizationStatusAuthorized -> CalendarPermissionStatus.Granted(CalendarAccess.ReadWrite)
+            EKAuthorizationStatusFullAccess -> CalendarPermissionStatus.Granted(CalendarAccess.ReadWrite)
+            EKAuthorizationStatusWriteOnly -> CalendarPermissionStatus.Granted(CalendarAccess.WriteOnly)
             EKAuthorizationStatusDenied -> CalendarPermissionStatus.Denied
             EKAuthorizationStatusRestricted -> CalendarPermissionStatus.Restricted
             EKAuthorizationStatusNotDetermined -> CalendarPermissionStatus.NotDetermined
@@ -287,7 +289,7 @@ actual class CalendarEventManager {
                 CalendarAccess.ReadWrite ->
                     "Neither NSCalendarsFullAccessUsageDescription nor NSCalendarsUsageDescription is declared in Info.plist"
             }
-            throw CalendarPermissionNotDeclaredException(CalendarPlatform.IOS, message)
+            throw CalendarPermissionNotDeclaredException(CalendarPlatform.IOS, message, access)
         }
     }
 

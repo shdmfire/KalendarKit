@@ -34,7 +34,6 @@ actual class CalendarEventManager {
     @OptIn(ExperimentalTime::class)
     @Throws(SystemCalendarException::class, CancellationException::class)
     actual suspend fun openAddEvent(event: Event): Boolean {
-        event.validate()
         val startTime = event.startDate.toInstant(TimeZone.currentSystemDefault()).toEpochMilliseconds()
         val endTime = event.endDate.toInstant(TimeZone.currentSystemDefault()).toEpochMilliseconds()
 
@@ -68,7 +67,6 @@ actual class CalendarEventManager {
     @OptIn(ExperimentalTime::class)
     @Throws(SystemCalendarException::class, CancellationException::class)
     actual suspend fun insertEvent(event: CalendarEventDraft): String = withContext(Dispatchers.IO) {
-        event.validate()
         ensurePermission(CalendarAccess.WriteOnly)
 
         val calendarId = event.calendarId ?: findDefaultCalendarId()
@@ -114,7 +112,6 @@ actual class CalendarEventManager {
     @OptIn(ExperimentalTime::class)
     @Throws(SystemCalendarException::class, CancellationException::class)
     actual suspend fun queryEvents(query: CalendarQuery): List<SystemCalendarEvent> = withContext(Dispatchers.IO) {
-        query.validate()
         ensurePermission(CalendarAccess.ReadWrite)
 
         val builder = CalendarContract.Instances.CONTENT_URI.buildUpon()
@@ -177,7 +174,6 @@ actual class CalendarEventManager {
     @OptIn(ExperimentalTime::class)
     @Throws(SystemCalendarException::class, CancellationException::class)
     actual suspend fun updateEvent(event: SystemCalendarEvent) = withContext(Dispatchers.IO) {
-        event.validate()
         ensurePermission(CalendarAccess.WriteOnly)
 
         val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, parseEventId(event.id))
@@ -247,8 +243,10 @@ actual class CalendarEventManager {
         val write = ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALENDAR)
 
         return@withContext when {
-            read == PackageManager.PERMISSION_GRANTED && write == PackageManager.PERMISSION_GRANTED -> CalendarPermissionStatus.Granted
-            write == PackageManager.PERMISSION_GRANTED -> CalendarPermissionStatus.WriteOnly
+            read == PackageManager.PERMISSION_GRANTED && write == PackageManager.PERMISSION_GRANTED ->
+                CalendarPermissionStatus.Granted(CalendarAccess.ReadWrite)
+            write == PackageManager.PERMISSION_GRANTED ->
+                CalendarPermissionStatus.Granted(CalendarAccess.WriteOnly)
             else -> CalendarPermissionStatus.Denied
         }
     }
@@ -262,7 +260,8 @@ actual class CalendarEventManager {
         if (!isPermissionDeclared(permission)) {
             throw CalendarPermissionNotDeclaredException(
                 platform = CalendarPlatform.Android,
-                message = "$permission is not declared in AndroidManifest.xml"
+                message = "$permission is not declared in AndroidManifest.xml",
+                requiredAccess = access
             )
         }
         if (ContextCompat.checkSelfPermission(context, permission) != PackageManager.PERMISSION_GRANTED) {

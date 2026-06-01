@@ -6,15 +6,19 @@ sealed class SystemCalendarException(
 ) : Exception(message, cause)
 
 class CalendarPermissionException(
-    val requiredAccess: CalendarAccess,
+    override val requiredAccess: CalendarAccess,
+    override val reason: CalendarPermissionReason = CalendarPermissionReason.NotGranted,
     message: String = "Calendar permission is not granted: $requiredAccess",
     cause: Throwable? = null
-) : SystemCalendarException(message, cause)
+) : SystemCalendarException(message, cause), CalendarPermissionProblem
 
 class CalendarPermissionNotDeclaredException(
     val platform: CalendarPlatform,
-    message: String
-) : SystemCalendarException(message)
+    message: String,
+    override val requiredAccess: CalendarAccess? = null
+) : SystemCalendarException(message), CalendarPermissionProblem {
+    override val reason: CalendarPermissionReason = CalendarPermissionReason.NotDeclared
+}
 
 class CalendarUnavailableException(
     message: String = "System calendar is unavailable",
@@ -40,6 +44,16 @@ class CalendarOperationFailedException(
 enum class CalendarAccess {
     WriteOnly,
     ReadWrite
+}
+
+interface CalendarPermissionProblem {
+    val reason: CalendarPermissionReason
+    val requiredAccess: CalendarAccess?
+}
+
+enum class CalendarPermissionReason {
+    NotGranted,
+    NotDeclared
 }
 
 enum class CalendarPlatform {

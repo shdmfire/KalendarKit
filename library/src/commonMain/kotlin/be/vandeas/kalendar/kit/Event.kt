@@ -13,7 +13,16 @@ data class Event(
     val location: String? = null,
     val url: String? = null,
 ) {
+    init {
+        validateInternal()
+    }
+
+    @Deprecated("Validation now runs during construction.")
     fun validate() {
+        validateInternal()
+    }
+
+    private fun validateInternal() {
         if (title.isBlank()) {
             throw CalendarValidationException("Event title cannot be blank")
         }
@@ -36,7 +45,16 @@ data class CalendarEventDraft(
     val calendarId: String? = null,
     val alarmMinutesBefore: List<Int> = emptyList()
 ) {
+    init {
+        validateInternal()
+    }
+
+    @Deprecated("Validation now runs during construction.")
     fun validate() {
+        validateInternal()
+    }
+
+    private fun validateInternal() {
         if (title.isBlank()) {
             throw CalendarValidationException("Event title cannot be blank")
         }
@@ -71,7 +89,16 @@ data class SystemCalendarEvent(
     val location: String? = null,
     val url: String? = null
 ) {
+    init {
+        validateInternal()
+    }
+
+    @Deprecated("Validation now runs during construction.")
     fun validate() {
+        validateInternal()
+    }
+
+    private fun validateInternal() {
         if (id.isBlank()) {
             throw CalendarValidationException("Event ID cannot be blank")
         }
@@ -97,7 +124,16 @@ data class CalendarQuery(
     val to: Instant,
     val calendarIds: List<String> = emptyList()
 ) {
+    init {
+        validateInternal()
+    }
+
+    @Deprecated("Validation now runs during construction.")
     fun validate() {
+        validateInternal()
+    }
+
+    private fun validateInternal() {
         if (to <= from) {
             throw CalendarValidationException("Query 'to' date must be after 'from' date")
         }
@@ -112,13 +148,12 @@ data class CalendarQuery(
     }
 }
 
-enum class CalendarPermissionStatus {
-    NotDetermined,
-    Granted,
-    Denied,
-    Restricted,
-    WriteOnly,
-    Unknown
+sealed interface CalendarPermissionStatus {
+    data object NotDetermined : CalendarPermissionStatus
+    data object Denied : CalendarPermissionStatus
+    data object Restricted : CalendarPermissionStatus
+    data object Unknown : CalendarPermissionStatus
+    data class Granted(val access: CalendarAccess) : CalendarPermissionStatus
 }
 
 private fun validateOptionalUrl(url: String?) {

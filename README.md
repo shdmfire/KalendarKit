@@ -173,12 +173,12 @@ ActivityCompat.requestPermissions(
 ```
 
 `CalendarPermissionStatus` values:
-- `NotDetermined`
-- `Granted`
-- `Denied`
-- `Restricted`
-- `WriteOnly`
-- `Unknown`
+- `CalendarPermissionStatus.NotDetermined`
+- `CalendarPermissionStatus.Granted(CalendarAccess.ReadWrite)`
+- `CalendarPermissionStatus.Granted(CalendarAccess.WriteOnly)`
+- `CalendarPermissionStatus.Denied`
+- `CalendarPermissionStatus.Restricted`
+- `CalendarPermissionStatus.Unknown`
 
 ## Exceptions
 
@@ -187,6 +187,7 @@ All domain exceptions inherit from `SystemCalendarException`:
   missing runtime permission for the requested operation (`WriteOnly` or `ReadWrite`).
 - `CalendarPermissionNotDeclaredException(platform: CalendarPlatform)`:
   required permission declaration is missing from platform config (`AndroidManifest.xml` / `Info.plist`).
+  It also implements `CalendarPermissionProblem` with reason `NotDeclared`.
 - `CalendarUnavailableException`:
   system calendar provider/app is unavailable on the current device.
 - `CalendarEventNotFoundException(eventId: String)`:
