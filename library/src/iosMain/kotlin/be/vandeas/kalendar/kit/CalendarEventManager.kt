@@ -80,93 +80,100 @@ actual class CalendarEventManager {
     @Throws(SystemCalendarException::class, CancellationException::class)
     actual suspend fun insertEvent(event: CalendarEventDraft): String = withContext(Dispatchers.IO) {
         event.validate()
-        ensureWritePermission()
+        ensurePermission(CalendarAccess.WriteOnly)
 
-        val ekEvent = EKEvent.eventWithEventStore(eventStore).apply {
-            title = event.title
-            startDate = event.start.toNSDate()
-            endDate = event.end.toNSDate()
-            location = event.location
-            notes = event.notes
-            calendar = event.calendarId?.let { eventStore.calendarWithIdentifier(it) } ?: eventStore.defaultCalendarForNewEvents
-            URL = event.url?.let { NSURL(string = it) }
+        runCalendar(CalendarOperation.Insert, CalendarAccess.WriteOnly) {
+            val ekEvent = EKEvent.eventWithEventStore(eventStore).apply {
+                title = event.title
+                startDate = event.start.toNSDate()
+                endDate = event.end.toNSDate()
+                location = event.location
+                notes = event.notes
+                calendar = event.calendarId?.let { eventStore.calendarWithIdentifier(it) } ?: eventStore.defaultCalendarForNewEvents
+                URL = event.url?.let { NSURL(string = it) }
+            }
+
+            event.alarmMinutesBefore.forEach { minutes ->
+                addAlarm(ekEvent, minutes.toDouble() * -60.0)
+            }
+
+            return@withContext saveEvent(ekEvent, CalendarOperation.Insert)
         }
-
-        // Alarms
-        event.alarmMinutesBefore.forEach { minutes ->
-            addAlarm(ekEvent, minutes.toDouble() * -60.0)
-        }
-
-        return@withContext saveEvent(ekEvent, CalendarOperation.Insert)
     }
 
     @OptIn(ExperimentalForeignApi::class)
     @Throws(SystemCalendarException::class, CancellationException::class)
     actual suspend fun queryEvents(query: CalendarQuery): List<SystemCalendarEvent> = withContext(Dispatchers.IO) {
         query.validate()
-        ensureReadPermission()
+        ensurePermission(CalendarAccess.ReadWrite)
 
-        val calendars = if (query.calendarIds.isEmpty()) {
-            null
-        } else {
-            eventStore.calendarsForEntityType(EKEntityType.EKEntityTypeEvent).filterIsInstance<EKCalendar>()
-                .filter { it.calendarIdentifier in query.calendarIds }
-        }
-
-        val predicate = eventStore.predicateForEventsWithStartDate(
-            startDate = query.from.toNSDate(),
-            endDate = query.to.toNSDate(),
-            calendars = calendars
-        )
-
-        return@withContext eventStore.eventsMatchingPredicate(predicate)
-            .filterIsInstance<EKEvent>()
-            .mapNotNull { event ->
-                val id = event.eventIdentifier ?: return@mapNotNull null
-                SystemCalendarEvent(
-                    id = id,
-                    calendarId = event.calendar?.calendarIdentifier,
-                    title = event.title.orEmpty(),
-                    start = event.startDate?.toKotlinInstant() ?: return@mapNotNull null,
-                    end = event.endDate?.toKotlinInstant() ?: return@mapNotNull null,
-                    notes = event.notes,
-                    location = event.location,
-                    url = event.URL?.absoluteString
-                )
+        runCalendar(CalendarOperation.Query, CalendarAccess.ReadWrite) {
+            val calendars = if (query.calendarIds.isEmpty()) {
+                null
+            } else {
+                eventStore.calendarsForEntityType(EKEntityType.EKEntityTypeEvent).filterIsInstance<EKCalendar>()
+                    .filter { it.calendarIdentifier in query.calendarIds }
             }
+
+            val predicate = eventStore.predicateForEventsWithStartDate(
+                startDate = query.from.toNSDate(),
+                endDate = query.to.toNSDate(),
+                calendars = calendars
+            )
+
+            return@withContext eventStore.eventsMatchingPredicate(predicate)
+                .filterIsInstance<EKEvent>()
+                .mapNotNull { event ->
+                    val id = event.eventIdentifier ?: return@mapNotNull null
+                    SystemCalendarEvent(
+                        id = id,
+                        calendarId = event.calendar?.calendarIdentifier,
+                        title = event.title.orEmpty(),
+                        start = event.startDate?.toKotlinInstant() ?: return@mapNotNull null,
+                        end = event.endDate?.toKotlinInstant() ?: return@mapNotNull null,
+                        notes = event.notes,
+                        location = event.location,
+                        url = event.URL?.absoluteString
+                    )
+                }
+        }
     }
 
     @OptIn(ExperimentalForeignApi::class)
     @Throws(SystemCalendarException::class, CancellationException::class)
     actual suspend fun updateEvent(event: SystemCalendarEvent): Unit = withContext(Dispatchers.IO) {
         event.validate()
-        ensureWritePermission()
+        ensurePermission(CalendarAccess.WriteOnly)
 
-        val ekEvent = eventStore.eventWithIdentifier(event.id)
-            ?: throw CalendarEventNotFoundException(event.id)
+        runCalendar(CalendarOperation.Update, CalendarAccess.WriteOnly) {
+            val ekEvent = eventStore.eventWithIdentifier(event.id)
+                ?: throw CalendarEventNotFoundException(event.id)
 
-        ekEvent.title = event.title
-        ekEvent.startDate = event.start.toNSDate()
-        ekEvent.endDate = event.end.toNSDate()
-        ekEvent.location = event.location
-        ekEvent.notes = event.notes
-        ekEvent.URL = event.url?.let { NSURL(string = it) }
+            ekEvent.title = event.title
+            ekEvent.startDate = event.start.toNSDate()
+            ekEvent.endDate = event.end.toNSDate()
+            ekEvent.location = event.location
+            ekEvent.notes = event.notes
+            ekEvent.URL = event.url?.let { NSURL(string = it) }
 
-        saveEvent(ekEvent, CalendarOperation.Update)
-        Unit
+            saveEvent(ekEvent, CalendarOperation.Update)
+            Unit
+        }
     }
 
     @OptIn(ExperimentalForeignApi::class)
     @Throws(SystemCalendarException::class, CancellationException::class)
     actual suspend fun deleteEvent(eventId: String) = withContext(Dispatchers.IO) {
-        ensureWritePermission()
+        ensurePermission(CalendarAccess.WriteOnly)
 
-        val ekEvent = eventStore.eventWithIdentifier(eventId)
-            ?: throw CalendarEventNotFoundException(eventId)
+        runCalendar(CalendarOperation.Delete, CalendarAccess.WriteOnly) {
+            val ekEvent = eventStore.eventWithIdentifier(eventId)
+                ?: throw CalendarEventNotFoundException(eventId)
 
-        val ok = eventStore.removeEvent(ekEvent, EKSpan.EKSpanThisEvent, true, null)
-        if (!ok) {
-            throw CalendarOperationFailedException(CalendarOperation.Delete, "Failed to remove event")
+            val ok = eventStore.removeEvent(ekEvent, EKSpan.EKSpanThisEvent, true, null)
+            if (!ok) {
+                throw CalendarOperationFailedException(CalendarOperation.Delete, "Failed to remove event")
+            }
         }
     }
 
@@ -230,31 +237,36 @@ actual class CalendarEventManager {
         }
     }
 
-    private fun ensureWritePermission() {
+    private fun ensurePermission(access: CalendarAccess) {
         val status = EKEventStore.authorizationStatusForEntityType(EKEntityType.EKEntityTypeEvent)
         if (status == EKAuthorizationStatusNotDetermined || status == EKAuthorizationStatusDenied) {
-            ensurePermissionDescriptionDeclared(CalendarAccess.WriteOnly)
+            ensurePermissionDescriptionDeclared(access)
         }
 
-        if (status != EKAuthorizationStatusAuthorized &&
-            status != EKAuthorizationStatusFullAccess &&
-            status != EKAuthorizationStatusWriteOnly
-        ) {
-            throw CalendarPermissionException(CalendarAccess.WriteOnly)
+        val hasAccess = when (access) {
+            CalendarAccess.WriteOnly ->
+                status == EKAuthorizationStatusAuthorized ||
+                    status == EKAuthorizationStatusFullAccess ||
+                    status == EKAuthorizationStatusWriteOnly
+            CalendarAccess.ReadWrite ->
+                status == EKAuthorizationStatusAuthorized ||
+                    status == EKAuthorizationStatusFullAccess
+        }
+        if (!hasAccess) {
+            throw CalendarPermissionException(access)
         }
     }
 
-    private fun ensureReadPermission() {
-        val status = EKEventStore.authorizationStatusForEntityType(EKEntityType.EKEntityTypeEvent)
-        if (status == EKAuthorizationStatusNotDetermined || status == EKAuthorizationStatusDenied) {
-            ensurePermissionDescriptionDeclared(CalendarAccess.ReadWrite)
-        }
-
-        if (status != EKAuthorizationStatusAuthorized &&
-            status != EKAuthorizationStatusFullAccess
-        ) {
-            throw CalendarPermissionException(CalendarAccess.ReadWrite)
-        }
+    private inline fun <T> runCalendar(
+        operation: CalendarOperation,
+        access: CalendarAccess,
+        block: () -> T
+    ): T = try {
+        block()
+    } catch (e: SystemCalendarException) {
+        throw e
+    } catch (e: Exception) {
+        throw CalendarOperationFailedException(operation, e.message ?: "$operation failed", cause = e)
     }
 
     private fun ensurePermissionDescriptionDeclared(access: CalendarAccess) {

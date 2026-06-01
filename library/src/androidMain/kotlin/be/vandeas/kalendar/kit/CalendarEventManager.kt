@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.content.ContentUris
 import android.content.ContentValues
+import android.content.ContentProviderOperation
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -68,7 +69,7 @@ actual class CalendarEventManager {
     @Throws(SystemCalendarException::class, CancellationException::class)
     actual suspend fun insertEvent(event: CalendarEventDraft): String = withContext(Dispatchers.IO) {
         event.validate()
-        ensureWritePermission()
+        ensurePermission(CalendarAccess.WriteOnly)
 
         val calendarId = event.calendarId ?: findDefaultCalendarId()
             ?: throw CalendarUnavailableException("No writable calendar found")
@@ -83,29 +84,30 @@ actual class CalendarEventManager {
             put(CalendarContract.Events.EVENT_TIMEZONE, JTimeZone.getDefault().id)
         }
 
-        try {
-            val uri = context.contentResolver.insert(CalendarContract.Events.CONTENT_URI, values)
+        runCalendar(CalendarOperation.Insert, CalendarAccess.WriteOnly) {
+            val operations = arrayListOf(
+                ContentProviderOperation.newInsert(CalendarContract.Events.CONTENT_URI)
+                    .withValues(values)
+                    .build()
+            )
+
+            event.alarmMinutesBefore.forEach { minutes ->
+                operations += ContentProviderOperation.newInsert(CalendarContract.Reminders.CONTENT_URI)
+                    .withValueBackReference(CalendarContract.Reminders.EVENT_ID, 0)
+                    .withValue(CalendarContract.Reminders.MINUTES, minutes)
+                    .withValue(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT)
+                    .build()
+            }
+
+            val results = context.contentResolver.applyBatch(CalendarContract.AUTHORITY, operations)
+            val uri = results.firstOrNull()?.uri
                 ?: throw CalendarOperationFailedException(
                     operation = CalendarOperation.Insert,
-                    message = "ContentResolver.insert returned null"
+                    message = "ContentResolver.applyBatch returned no event URI"
                 )
 
             val eventId = ContentUris.parseId(uri).toString()
-
-            event.alarmMinutesBefore.forEach { minutes ->
-                val reminderValues = ContentValues().apply {
-                    put(CalendarContract.Reminders.EVENT_ID, parseEventId(eventId))
-                    put(CalendarContract.Reminders.MINUTES, minutes)
-                    put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT)
-                }
-                context.contentResolver.insert(CalendarContract.Reminders.CONTENT_URI, reminderValues)
-            }
-
             return@withContext eventId
-        } catch (e: SecurityException) {
-            throw CalendarPermissionException(CalendarAccess.WriteOnly, cause = e)
-        } catch (e: Exception) {
-            throw CalendarOperationFailedException(CalendarOperation.Insert, e.message ?: "Insert failed", cause = e)
         }
     }
 
@@ -113,7 +115,7 @@ actual class CalendarEventManager {
     @Throws(SystemCalendarException::class, CancellationException::class)
     actual suspend fun queryEvents(query: CalendarQuery): List<SystemCalendarEvent> = withContext(Dispatchers.IO) {
         query.validate()
-        ensureReadPermission()
+        ensurePermission(CalendarAccess.ReadWrite)
 
         val builder = CalendarContract.Instances.CONTENT_URI.buildUpon()
         ContentUris.appendId(builder, query.from.toEpochMilliseconds())
@@ -130,13 +132,19 @@ actual class CalendarEventManager {
         )
 
         val result = mutableListOf<SystemCalendarEvent>()
+        val selection = if (query.calendarIds.isNotEmpty()) {
+            "${CalendarContract.Instances.CALENDAR_ID} IN (${query.calendarIds.joinToString(",") { "?" }})"
+        } else {
+            null
+        }
+        val selectionArgs = query.calendarIds.takeIf { it.isNotEmpty() }?.toTypedArray()
 
-        try {
+        runCalendar(CalendarOperation.Query, CalendarAccess.ReadWrite) {
             context.contentResolver.query(
                 builder.build(),
                 projection,
-                null,
-                null,
+                selection,
+                selectionArgs,
                 CalendarContract.Instances.BEGIN + " ASC"
             )?.use { cursor ->
                 val eventIdIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.EVENT_ID)
@@ -149,7 +157,6 @@ actual class CalendarEventManager {
 
                 while (cursor.moveToNext()) {
                     val calendarId = cursor.getString(calIdIdx)
-                    if (query.calendarIds.isNotEmpty() && calendarId !in query.calendarIds) continue
 
                     result += SystemCalendarEvent(
                         id = cursor.getLong(eventIdIdx).toString(),
@@ -162,10 +169,6 @@ actual class CalendarEventManager {
                     )
                 }
             }
-        } catch (e: SecurityException) {
-            throw CalendarPermissionException(CalendarAccess.ReadWrite, cause = e)
-        } catch (e: Exception) {
-            throw CalendarOperationFailedException(CalendarOperation.Query, e.message ?: "Query failed", cause = e)
         }
 
         return@withContext result
@@ -175,7 +178,7 @@ actual class CalendarEventManager {
     @Throws(SystemCalendarException::class, CancellationException::class)
     actual suspend fun updateEvent(event: SystemCalendarEvent) = withContext(Dispatchers.IO) {
         event.validate()
-        ensureWritePermission()
+        ensurePermission(CalendarAccess.WriteOnly)
 
         val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, parseEventId(event.id))
 
@@ -187,33 +190,25 @@ actual class CalendarEventManager {
             put(CalendarContract.Events.DTEND, event.end.toEpochMilliseconds())
         }
 
-        try {
+        runCalendar(CalendarOperation.Update, CalendarAccess.WriteOnly) {
             val rows = context.contentResolver.update(uri, values, null, null)
             if (rows == 0) {
                 throw CalendarEventNotFoundException(event.id)
             }
-        } catch (e: SecurityException) {
-            throw CalendarPermissionException(CalendarAccess.WriteOnly, cause = e)
-        } catch (e: Exception) {
-            throw CalendarOperationFailedException(CalendarOperation.Update, e.message ?: "Update failed", cause = e)
         }
     }
 
     @Throws(SystemCalendarException::class, CancellationException::class)
     actual suspend fun deleteEvent(eventId: String) = withContext(Dispatchers.IO) {
-        ensureWritePermission()
+        ensurePermission(CalendarAccess.WriteOnly)
 
         val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, parseEventId(eventId))
 
-        try {
+        runCalendar(CalendarOperation.Delete, CalendarAccess.WriteOnly) {
             val rows = context.contentResolver.delete(uri, null, null)
             if (rows == 0) {
                 throw CalendarEventNotFoundException(eventId)
             }
-        } catch (e: SecurityException) {
-            throw CalendarPermissionException(CalendarAccess.WriteOnly, cause = e)
-        } catch (e: Exception) {
-            throw CalendarOperationFailedException(CalendarOperation.Delete, e.message ?: "Delete failed", cause = e)
         }
     }
 
@@ -258,28 +253,35 @@ actual class CalendarEventManager {
         }
     }
 
-    private fun ensureWritePermission() {
-        if (!isPermissionDeclared(Manifest.permission.WRITE_CALENDAR)) {
+    private fun ensurePermission(access: CalendarAccess) {
+        val permission = when (access) {
+            CalendarAccess.WriteOnly -> Manifest.permission.WRITE_CALENDAR
+            CalendarAccess.ReadWrite -> Manifest.permission.READ_CALENDAR
+        }
+
+        if (!isPermissionDeclared(permission)) {
             throw CalendarPermissionNotDeclaredException(
                 platform = CalendarPlatform.Android,
-                message = "android.permission.WRITE_CALENDAR is not declared in AndroidManifest.xml"
+                message = "$permission is not declared in AndroidManifest.xml"
             )
         }
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALENDAR) != PackageManager.PERMISSION_GRANTED) {
-            throw CalendarPermissionException(CalendarAccess.WriteOnly)
+        if (ContextCompat.checkSelfPermission(context, permission) != PackageManager.PERMISSION_GRANTED) {
+            throw CalendarPermissionException(access)
         }
     }
 
-    private fun ensureReadPermission() {
-        if (!isPermissionDeclared(Manifest.permission.READ_CALENDAR)) {
-            throw CalendarPermissionNotDeclaredException(
-                platform = CalendarPlatform.Android,
-                message = "android.permission.READ_CALENDAR is not declared in AndroidManifest.xml"
-            )
-        }
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) {
-            throw CalendarPermissionException(CalendarAccess.ReadWrite)
-        }
+    private inline fun <T> runCalendar(
+        operation: CalendarOperation,
+        access: CalendarAccess,
+        block: () -> T
+    ): T = try {
+        block()
+    } catch (e: SystemCalendarException) {
+        throw e
+    } catch (e: SecurityException) {
+        throw CalendarPermissionException(access, cause = e)
+    } catch (e: Exception) {
+        throw CalendarOperationFailedException(operation, e.message ?: "$operation failed", cause = e)
     }
 
     private fun isPermissionDeclared(permission: String): Boolean {
